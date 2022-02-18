@@ -6,4 +6,5 @@ apps:
     root: ./ # 应用的启动目录
     name: Angular Quickstart # 应用名称
     description: Angular Quickstart Project # 应用描述
-    autoOpen: true # 打开工作空间时是否自动开启预览（优先级高于根级 autoOpen）
+    autoOpen: true # 打开工作空间时是否自动运行命令（优先级高于根级 autoOpen）
+    autoPreview: true # 是否自动打开预览, 若无则默认为true。
