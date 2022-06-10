@@ -730,6 +730,7 @@ func TestWorkspaceUpdateTTL(t *testing.T) {
 	}
 
 	t.Run("NotFound", func(t *testing.T) {
+		t.Parallel()
 		var (
 			ctx    = context.Background()
 			client = coderdtest.New(t, nil)
@@ -745,6 +746,44 @@ func TestWorkspaceUpdateTTL(t *testing.T) {
 		coderSDKErr, _ := err.(*codersdk.Error) //nolint:errorlint
 		require.Equal(t, coderSDKErr.StatusCode(), 404, "expected status code 404")
 		require.Equal(t, fmt.Sprintf("Workspace %q does not exist.", wsid), coderSDKErr.Message, "unexpected response code")
+	})
+
+	t.Run("NoClobber", func(t *testing.T) {
+		t.Parallel()
+
+		var (
+			ctx          = context.Background()
+			client       = coderdtest.New(t, &coderdtest.Options{IncludeProvisionerD: true})
+			user         = coderdtest.CreateFirstUser(t, client)
+			version      = coderdtest.CreateTemplateVersion(t, client, user.OrganizationID, nil)
+			_            = coderdtest.AwaitTemplateVersionJob(t, client, version.ID)
+			project      = coderdtest.CreateTemplate(t, client, user.OrganizationID, version.ID)
+			workspace    = coderdtest.CreateWorkspace(t, client, user.OrganizationID, project.ID)
+			build        = coderdtest.AwaitWorkspaceBuildJob(t, client, workspace.LatestBuild.ID)
+			newTTLMillis = ptr.Ref(*workspace.TTLMillis + time.Hour.Milliseconds())
+			newDeadline  = build.Deadline.Add(2 * time.Hour)
+		)
+
+		// Given: user extends a workspace by 2 hours
+		err := client.PutExtendWorkspace(ctx, workspace.ID, codersdk.PutExtendWorkspaceRequest{
+			Deadline: newDeadline,
+		})
+		require.NoError(t, err)
+
+		// When: user updates workspace TTL by 1 hour
+		err = client.UpdateWorkspaceTTL(ctx, workspace.ID, codersdk.UpdateWorkspaceTTLRequest{
+			TTLMillis: newTTLMillis,
+		})
+
+		// Then: the TTL is updated successfully
+		require.NoError(t, err, "expected no error setting workspace autostop schedule")
+		updated, err := client.Workspace(ctx, workspace.ID)
+		require.NoError(t, err, "fetch updated workspace")
+
+		require.Equal(t, newTTLMillis, updated.TTLMillis, "expected autostop ttl to equal requested")
+
+		// And: the workspace deadline is not shortened
+		require.Equal(t, newDeadline, updated.LatestBuild.Deadline)
 	})
 }
 
