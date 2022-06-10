@@ -594,6 +594,24 @@ func (api *API) putWorkspaceTTL(rw http.ResponseWriter, r *http.Request) {
 			newDeadline = latestBuild.UpdatedAt.Add(time.Duration(dbTTL.Int64))
 		}
 
+		wouldClobberExistingDeadline := func(ws database.Workspace, build database.WorkspaceBuild, newTTL time.Duration, newDeadline time.Time) bool {
+			// TTL unset -> TTL set.
+			if build.Deadline.IsZero() {
+				return false
+			}
+			// TTL set -> TTL unset.
+			if newDeadline.IsZero() {
+				return false
+			}
+			// TTL set + deadline extended.
+			delta := latestBuild.Deadline.Add(-newTTL).Sub(latestBuild.UpdatedAt)
+			return delta >= time.Minute
+		}(workspace, latestBuild, time.Duration(dbTTL.Int64), newDeadline)
+		if wouldClobberExistingDeadline {
+			// The user has a previous deadline set; do not clobber.
+			return nil
+		}
+
 		if err := s.UpdateWorkspaceBuildByID(
 			r.Context(),
 			database.UpdateWorkspaceBuildByIDParams{
